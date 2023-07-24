@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"io"
+	"log"
 	"net"
 	"os"
 	"strconv"
@@ -14,11 +14,15 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
+var enableLogging bool
+
+func init() {
+	flag.BoolVar(&enableLogging, "log", false, "Enable logging")
+	flag.Parse()
+}
+
 func main() {
 	var connStr string
-	flag.StringVar(&connStr, "conn", "", "Connection string in the format 'username@hostname:port'")
-	flag.Parse()
-
 	// Check if the positional argument is provided
 	args := flag.Args()
 	if len(args) > 0 {
@@ -56,12 +60,16 @@ func main() {
 		port = 22 // Default SSH port
 	}
 
-	var err error
+	// Enable logging if the --log flag is provided
+	if enableLogging {
+		log.SetFlags(log.LstdFlags | log.Lshortfile)
+		log.Printf("Connecting to %s@%s:%d...", user, host, port)
+	}
 
 	// Connect to the SSH agent
 	sshAgentConn, err := net.Dial("unix", os.Getenv("SSH_AUTH_SOCK"))
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Println("Failed to connect to SSH agent:", err)
 		return
 	}
 	defer sshAgentConn.Close()
@@ -83,37 +91,33 @@ func main() {
 
 	conn, err = ssh.Dial("tcp", fmt.Sprintf("%s:%d", host, port), conf)
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Println("Failed to establish SSH connection:", err)
 		return
 	}
 	defer conn.Close()
 
-	var session *ssh.Session
-	session, err = conn.NewSession()
+	session, err := conn.NewSession()
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Println("Failed to create SSH session:", err)
 		return
 	}
 	defer session.Close()
 
-	var stdin io.WriteCloser
-	var stdout, stderr io.Reader
-
-	stdin, err = session.StdinPipe()
+	stdin, err := session.StdinPipe()
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Println("Failed to create stdin pipe:", err)
 		return
 	}
 
-	stdout, err = session.StdoutPipe()
+	stdout, err := session.StdoutPipe()
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Println("Failed to create stdout pipe:", err)
 		return
 	}
 
-	stderr, err = session.StderrPipe()
+	stderr, err := session.StderrPipe()
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Println("Failed to create stderr pipe:", err)
 		return
 	}
 
@@ -123,7 +127,7 @@ func main() {
 		for d := range wr {
 			_, err := stdin.Write(d)
 			if err != nil {
-				fmt.Println(err.Error())
+				log.Println("Failed to write to stdin:", err)
 			}
 		}
 	}()
@@ -142,9 +146,13 @@ func main() {
 		}
 	}()
 
+	if enableLogging {
+		log.Println("SSH connection established. Running command: ls -l")
+	}
+
 	// Wait for the session to finish
 	err = session.Run("ls -l")
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Println("Failed to run command:", err)
 	}
 }
